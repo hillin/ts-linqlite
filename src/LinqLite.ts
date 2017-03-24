@@ -30,6 +30,8 @@ function lastOrUndefinedForArray<T>(target: T[], predicate: Predicate<T> = empty
             return item;
         }
     }
+
+    return undefined;
 }
 
 export function lastOrUndefined<T>(target: Iterable<T> | T[], predicate: Predicate<T> = emptyPredicate): T | undefined {
@@ -124,7 +126,7 @@ export function sum<T>(target: Iterable<T>, selector: Selector<T, number> = empt
     return sum;
 }
 
-export interface ILinqObject<T> {
+export interface ILinqObject<T> extends Iterable<T> {
     select<TResult>(selector: Selector<T, TResult>): ILinqObject<TResult>;
     selectMany<TResult>(selector: Selector<T, Iterable<TResult>>): ILinqObject<TResult>;
     where(predicate: Predicate<T>): ILinqObject<T>;
@@ -135,8 +137,14 @@ export interface ILinqObject<T> {
 }
 
 class LinqWrapper<T> implements ILinqObject<T> {
+
     constructor(private readonly iterable: Iterable<T>) {
 
+    }
+
+    [Symbol.iterator](): Iterator<T> {
+        // ReSharper disable once ImplicitAnyError
+        return this.iterable[Symbol.iterator]();
     }
 
     firstOrUndefined(predicate: Predicate<T>): T | undefined {
