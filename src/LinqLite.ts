@@ -6,8 +6,10 @@ export type EqualityComparer<T> = (a: T, b: T) => boolean;
 export type Hash<T> = (e: T) => number;
 
 type HashSet<T> = { [key: number]: T };
+interface IGrouping<TKey, TElement> extends Iterable<TElement> { key: TKey };
 
 const defaultNumberSelector = (e: any) => e.valueOf();
+const defaultSelector = (e: any) => e;
 const defaultPredicate = () => true;
 const defaultEqualityComparer = (a: any, b: any) => a === b;
 const defaultHash = (e: any) => e.valueOf();
@@ -344,31 +346,87 @@ export function firstOrUndefined<T>(source: Iterable<T>, predicate: Predicate<T>
     return undefined;
 }
 
+class Grouping<TKey, TElement> implements IGrouping<TKey, TElement> {
+    readonly array = new Array<TElement>();
+    constructor(readonly key: TKey) { }
+
+    [Symbol.iterator](): Iterator<TElement> {
+        // ReSharper disable once ImplicitAnyError
+        return this.array[Symbol.iterator]();
+    }
+}
+
 /**
- * Returns undefined in a singleton collection if the sequence is empty.
- * @param source The sequence to return a default value for if it is empty.
- * @return An Iterable<T | undefined> object that contains undefined if source is empty; otherwise, source.
+ * Groups the elements of a sequence according to a specified key selector function and projects the elements for each group by using a specified function. A specified EqualityComparer<TKey> is used to compare keys.
+ * @param source An Iterable<T> whose elements to group.
+ * @param keySelector A function to extract the key for each element.
+ * @param elementSelector A function to map each source element to an element in the IGrouping<TKey, TElement>.
+ * @param keyComparer An EqualityComparer<TKey> to compare keys.
+ * @return An Iterable<IGrouping<TKey, TElement>> where each IGrouping<TKey, TElement> object contains a collection of objects of type TElement and a key.
  */
-export function* undefinedIfEmpty<T>(source: Iterable<T>): Iterable<T | undefined> {
-    const iterator = source[Symbol.iterator]();
-    let iterateResult = iterator.next();
-    if (iterateResult.done) {
-        yield undefined;
-    } else {
-        yield iterateResult.value;
+export function groupBy<TSource, TKey, TElement>(source: Iterable<TSource>,
+    keySelector: Selector<TSource, TKey>,
+    elementSelector: Selector<TSource, TElement> = defaultSelector,
+    keyComparer: EqualityComparer<TKey> = defaultEqualityComparer)
+    : Iterable<IGrouping<TKey, TElement>> {
+
+    const groups = new Array<Grouping<TKey, TElement>>();
+
+    for (let item of source) {
+        const key = keySelector(item);
+        let groupFound = false;
+        for (let group of groups) {
+            if (keyComparer(key, group.key)) {
+                group.array.push(elementSelector(item));
+                groupFound = true;
+                break;
+            }
+        }
+
+        if (!groupFound) {
+            const group = new Grouping<TKey, TElement>(key);
+            group.array.push(elementSelector(item));
+            groups.push(group);
+        }
     }
 
-    while (true) {
-        iterateResult = iterator.next();
-        if (iterateResult.done) {
-            break;
-        } else {
-            yield iterateResult.value;
+    return groups;
+}
+
+/**
+ * Groups the elements of a sequence according to a specified key selector function and projects the elements for each group by using a specified function. A specified Hash<TKey> is used to calculate key hash values.
+ * @param source An Iterable<T> whose elements to group.
+ * @param keySelector A function to extract the key for each element.
+ * @param elementSelector A function to map each source element to an element in the IGrouping<TKey, TElement>.
+ * @param keyHash An Hash<TKey> to calculate key hash values.
+ * @return An Iterable<IGrouping<TKey, TElement>> where each IGrouping<TKey, TElement> object contains a collection of objects of type TElement and a key.
+ */
+export function* groupByHash<TSource, TKey, TElement>(source: Iterable<TSource>,
+    keySelector: Selector<TSource, TKey>,
+    elementSelector: Selector<TSource, TElement> = defaultSelector,
+    keyHash: Hash<TKey> = defaultHash)
+    : Iterable<IGrouping<TKey, TElement>> {
+
+    const groups: HashSet<Grouping<TKey, TElement>> = {};
+
+    for (let item of source) {
+        const key = keySelector(item);
+        const keyHashValue = keyHash(key);
+
+        if (groups[keyHashValue] === undefined) {
+            groups[keyHashValue] = new Grouping<TKey, TElement>(key);
+        }
+
+        groups[keyHashValue].array.push(elementSelector(item));
+    }
+
+    for (let key in groups) {
+        if (groups.hasOwnProperty(key)) {
+            yield groups[key];
         }
     }
 }
 
-// todo: groupBy and overloads
 // todo: groupJoin and overloads
 
 /**
@@ -723,6 +781,30 @@ export function toArray<T>(source: Iterable<T>): T[] {
 // todo: toLookup
 
 /**
+ * Returns undefined in a singleton collection if the sequence is empty.
+ * @param source The sequence to return a default value for if it is empty.
+ * @return An Iterable<T | undefined> object that contains undefined if source is empty; otherwise, source.
+ */
+export function* undefinedIfEmpty<T>(source: Iterable<T>): Iterable<T | undefined> {
+    const iterator = source[Symbol.iterator]();
+    let iterateResult = iterator.next();
+    if (iterateResult.done) {
+        yield undefined;
+    } else {
+        yield iterateResult.value;
+    }
+
+    while (true) {
+        iterateResult = iterator.next();
+        if (iterateResult.done) {
+            break;
+        } else {
+            yield iterateResult.value;
+        }
+    }
+}
+
+/**
  * Produces the set union of two sequences by using a specified EqualityComparer<T>.
  * @param first An Iterable<T> whose distinct elements form the first set for the union.
  * @param second An Iterable<T> whose distinct elements form the second set for the union.
@@ -931,11 +1013,35 @@ export interface ILinqObject<T> extends Iterable<T> {
      * @return undefined if this sequence is empty or if no element passes the test specified by predicate; otherwise, the first element in this sequence that passes the test specified by predicate.
      */
     firstOrUndefined(predicate?: Predicate<T>): T | undefined;
+
+
     /**
-     * Returns undefined in a singleton collection if this sequence is empty.
-     * @return An Iterable<T | undefined> object that contains undefined if this sequence is empty; otherwise, this sequence.
+     * Groups the elements of this sequence according to a specified key selector function and projects the elements for each group by using a specified function.
+     * A specified EqualityComparer<TKey> is used to compare keys.
+     * @param keySelector A function to extract the key for each element.
+     * @param elementSelector A function to map each source element to an element in the IGrouping<TKey, TElement>.
+     * @param keyComparer An EqualityComparer<TKey> to compare keys.
+     * @return An ILinqObject<IGrouping<TKey, TElement>> where each IGrouping<TKey, TElement> object contains a collection of objects of type TElement and a key.
      */
-    undefinedIfEmpty(): ILinqObject<T | undefined>;
+    groupBy<TSource, TKey, TElement>(keySelector: Selector<TSource, TKey>,
+        elementSelector?: Selector<TSource, TElement>,
+        keyComparer?: EqualityComparer<TKey>)
+        : ILinqObject<IGrouping<TKey, TElement>>;
+
+
+    /**
+     * Groups the elements of this sequence according to a specified key selector function and projects the elements for each group by using a specified function.
+     * A specified Hash<TKey> is used to calculate key hash values.
+     * @param keySelector A function to extract the key for each element.
+     * @param elementSelector A function to map each source element to an element in the IGrouping<TKey, TElement>.
+     * @param keyHash An Hash<TKey> to calculate key hash values.
+     * @return An ILinqObject<IGrouping<TKey, TElement>> where each IGrouping<TKey, TElement> object contains a collection of objects of type TElement and a key.
+     */
+    groupByHash<TSource, TKey, TElement>(keySelector: Selector<TSource, TKey>,
+        elementSelector?: Selector<TSource, TElement>,
+        keyHash?: Hash<TKey>)
+        : ILinqObject<IGrouping<TKey, TElement>>;
+
     /**
      * Produces the set intersection of this and another sequence by using the specified EqualityComparer<T> to compare values.
      * @param other An Iterable<T> whose distinct elements that also appear in the first sequence will be returned.
@@ -1051,6 +1157,13 @@ export interface ILinqObject<T> extends Iterable<T> {
      * @return An array that contains the elements from this sequence.
      */
     toArray(): T[];
+
+    /**
+     * Returns undefined in a singleton collection if this sequence is empty.
+     * @return An Iterable<T | undefined> object that contains undefined if this sequence is empty; otherwise, this sequence.
+     */
+    undefinedIfEmpty(): ILinqObject<T | undefined>;
+
     /**
      * Produces the set union of this and another sequence by using a specified EqualityComparer<T>.
      * @param other An Iterable<T> whose distinct elements form the other set for the union.
@@ -1164,6 +1277,18 @@ class LinqWrapper<T> implements ILinqObject<T> {
 
     firstOrUndefined(predicate: Predicate<T> = defaultPredicate): T | undefined {
         return firstOrUndefined(this.iterable, predicate);
+    }
+
+    groupBy<TKey, TElement>(keySelector: Selector<T, TKey>,
+        elementSelector: Selector<T, TElement> = defaultSelector,
+        keyComparer: EqualityComparer<TKey> = defaultEqualityComparer): ILinqObject<IGrouping<TKey, TElement>> {
+        return new LinqWrapper<IGrouping<TKey, TElement>>(groupBy<T, TKey, TElement>(this.iterable, keySelector, elementSelector, keyComparer));
+    }
+
+    groupByHash<TKey, TElement>(keySelector: Selector<T, TKey>,
+        elementSelector: Selector<T, TElement> = defaultSelector,
+        keyHash: Hash<TKey> = defaultHash): ILinqObject<IGrouping<TKey, TElement>> {
+        return new LinqWrapper<IGrouping<TKey, TElement>>(groupByHash<T, TKey, TElement>(this.iterable, keySelector, elementSelector, keyHash));
     }
 
     undefinedIfEmpty(): ILinqObject<T | undefined> {
