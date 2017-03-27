@@ -17,7 +17,6 @@ const defaultEqualityComparer = (a: any, b: any) => a === b;
 const defaultComparer = (a: any, b: any) => a - b;
 const defaultHash = (e: any) => e.valueOf();
 
-
 function invertComparer<T>(comparer: Comparer<T>): Comparer<T> {
     return (a: T, b: T) => -comparer(a, b);
 }
@@ -110,6 +109,19 @@ export function any<T>(source: Iterable<T>, predicate: Predicate<T> = defaultPre
     }
 
     return false;
+}
+
+/**
+ * Append the specified element to a sequence, and return as a new sequence
+ * @param source An Iterable<T> to append the element to.
+ * @param element The element to append.
+ * @return An new Iterable<T> with the specified element appended to the specified sequence.
+ */
+export function* append<T>(source: Iterable<T>, element: T): Iterable<T> {
+    for (let item of source) {
+        yield item;
+    }
+    yield element;
 }
 
 /**
@@ -727,6 +739,19 @@ export function orderByDescending<T, TKey>(source: Iterable<T>,
     return orderBy(source, keySelector, invertComparer(comparer));
 }
 
+/**
+ * Prepend the specified element to a sequence, and return as a new sequence
+ * @param source An Iterable<T> to prepend the element to.
+ * @param element The element to prepend.
+ * @return An new Iterable<T> with the specified element prepended to the specified sequence.
+ */
+export function* prepend<T>(source: Iterable<T>, element: T): Iterable<T> {
+    yield element;
+    for (let item of source) {
+        yield item;
+    }
+}
+
 function* reverseArray<T>(source: T[]): Iterable<T> {
     for (let i = source.length - 1; i >= 0; --i) {
         yield source[i];
@@ -935,6 +960,30 @@ export function toArray<T>(source: Iterable<T>): T[] {
 }
 
 /**
+ * Creates a lookup from an Iterable<T> according to specified key selector and element selector functions.
+ * @param source The Iterable<T> to create a lookup from.
+ * @param keySelector A function to extract a key from each element.
+ * @param valueSelector A transform function to produce a result element value from each element.
+ * @return A lookup that contains values of type TElement selected from the input sequence.
+ */
+export function toLookup<T, TElement>(source: Iterable<T>,
+    keySelector: Selector<T, string>,
+    valueSelector: Selector<T, TElement> = defaultSelector): StringKeyMap<Iterable<TElement>> {
+    const object: StringKeyMap<TElement[]> = {};
+    for (let item of source) {
+        const key = keySelector(item);
+        const value = valueSelector(item);
+        if (object[key] === undefined) {
+            object[key] = [value];
+        } else {
+            object[key].push(value);
+        }
+    }
+
+    return object;
+}
+
+/**
  * Creates a map object from a sequence according to specified key selector and element selector functions.
  * @param source An Iterable<T> to create a map object from.
  * @param keySelector A function to extract a string key from each element.
@@ -1099,12 +1148,13 @@ export interface ISequence<T> extends Iterable<T> {
      * @return true if any elements in the source sequence pass the test in the specified predicate; otherwise, false.
      */
     any(predicate?: Predicate<T>): boolean;
+
     /**
-     * Computes the average of this sequence of number values that are obtained by invoking a transform function on each element of the input sequence.
-     * @param selector A transform function to apply to each element.
-     * @return The average of the sequence of values.
+     * Append the specified element to this sequence, and return as a new sequence
+     * @param element The element to append.
+     * @return An new Iterable<T> with the specified element appended to this sequence.
      */
-    average(selector?: Selector<T, number>): number;
+    append(element: T): Iterable<T>;
 
     /**
      * Assert the elements of this sequence as the specified type.
@@ -1112,6 +1162,15 @@ export interface ISequence<T> extends Iterable<T> {
      * @return A sequence<TResult> that contains each element of the source sequence asserted to the specified type.
      */
     assertType<TResult extends T>(): ISequence<TResult>;
+
+    /**
+     * Computes the average of this sequence of number values that are obtained by invoking a transform function on each element of the input sequence.
+     * @param selector A transform function to apply to each element.
+     * @return The average of the sequence of values.
+     */
+    average(selector?: Selector<T, number>): number;
+
+
     /**
      * Concatenates this sequence with another sequence.
      * @param other The sequence to concatenate to this sequence.
@@ -1321,6 +1380,13 @@ export interface ISequence<T> extends Iterable<T> {
         comparer?: Comparer<TKey>): IOrderedSequence<T>;
 
     /**
+     * Prepend the specified element to this sequence, and return as a new sequence
+     * @param element The element to prepend.
+     * @return An new Iterable<T> with the specified element prepended to this sequence.
+     */
+    prepend(element: T): Iterable<T>;
+
+    /**
      * Inverts the order of this elements in a sequence.
      * @return A sequence whose elements correspond to those of this input sequence in reverse order.
      */
@@ -1391,6 +1457,15 @@ export interface ISequence<T> extends Iterable<T> {
      * @return An array that contains the elements from this sequence.
      */
     toArray(): T[];
+
+    /**
+     * Creates a lookup from this sequence according to specified key selector and element selector functions.
+     * @param keySelector A function to extract a key from each element.
+     * @param valueSelector A transform function to produce a result element value from each element.
+     * @return A lookup that contains values of type TElement selected from this sequence.
+     */
+    toLookup<TElement>(keySelector: Selector<T, string>,
+        valueSelector?: Selector<T, TElement>): StringKeyMap<ISequence<TElement>>;
 
     /**
      * Creates a map object from this sequence according to specified key selector and element selector functions.
@@ -1466,12 +1541,16 @@ class Sequence<T> implements ISequence<T> {
         return any(this.iterable, predicate);
     }
 
-    average(selector: Selector<T, number> = defaultNumberSelector): number {
-        return average(this.iterable, selector);
+    append(element: T): Iterable<T> {
+        return new Sequence<T>(append(this.iterable, element));
     }
 
     assertType<TResult extends T>(): ISequence<TResult> {
         return new Sequence(assertType<T, TResult>(this.iterable));
+    }
+
+    average(selector: Selector<T, number> = defaultNumberSelector): number {
+        return average(this.iterable, selector);
     }
 
     concat(other: Iterable<T>): ISequence<T> {
@@ -1606,6 +1685,10 @@ class Sequence<T> implements ISequence<T> {
         return new OrderedSequence(orderByDescending(this.iterable, keySelector, comparer));
     }
 
+    prepend(element: T): Iterable<T> {
+        return new Sequence<T>(prepend(this.iterable, element));
+    }
+
     reverse(): ISequence<T> {
         return new Sequence<T>(reverse(this.iterable));
     }
@@ -1654,9 +1737,22 @@ class Sequence<T> implements ISequence<T> {
         return toArray(this.iterable);
     }
 
+    toLookup<TElement>(keySelector: Selector<T, string>,
+        valueSelector: Selector<T, TElement> = defaultSelector): StringKeyMap<ISequence<TElement>> {
+        const rawLookup = toLookup(this.iterable, keySelector, valueSelector);
+        const lookup: StringKeyMap<ISequence<TElement>> = {};
+        for (let key in rawLookup) {
+            if (rawLookup.hasOwnProperty(key)) {
+                lookup[key] = new Sequence<TElement>(rawLookup[key]);
+            }
+        }
+
+        return lookup;
+    }
+
     toMap<TElement>(keySelector: Selector<T, string>,
         valueSelector: Selector<T, TElement> = defaultSelector): StringKeyMap<TElement> {
-        return toMap<T, TElement>(this.iterable, keySelector, valueSelector);
+        return toMap(this.iterable, keySelector, valueSelector);
     }
 
     undefinedIfEmpty(): ISequence<T | undefined> {
