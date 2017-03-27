@@ -8,6 +8,7 @@ export type Hash<T> = (e: T) => number;
 type NumberKeyMap<T> = { [key: number]: T };
 type StringKeyMap<T> = { [key: string]: T };
 interface IGrouping<TKey, TElement> extends Iterable<TElement> { key: TKey };
+type Constructor<T> = new (...args: any[]) => T;
 
 const defaultNumberSelector = (e: any) => e.valueOf();
 const defaultSelector = (e: any) => e;
@@ -563,7 +564,20 @@ export function minMax<T>(source: Iterable<T>, selector: Selector<T, number> = d
     return { min, max };
 }
 
-// todo: ofType
+/**
+ * Filters the elements of a sequence based on a specified type.
+ * @param source The Iterable<T> whose elements to filter.
+ * @param ctor The constructor function of type TResult to test element types of the sequence.
+ * @return An Iterable<T> that contains elements from the input sequence of type TResult.
+ */
+export function* ofType<T, TResult extends T>(source: Iterable<T>, ctor: Constructor<TResult>): Iterable<TResult> {
+    for (let item of source) {
+        if (item instanceof ctor) {
+            yield item as TResult;
+        }
+    }
+}
+
 // todo: orderBy
 // todo: orderByDescending
 
@@ -1107,6 +1121,12 @@ export interface ILinqObject<T> extends Iterable<T> {
      */
     minMax(selector?: Selector<T, number>): { min: number, max: number };
     /**
+     * Filters the elements of this sequence based on a specified type.
+     * @param ctor The constructor function of type TResult to test element types of this sequence.
+     * @return An ILinqObject<T> that contains elements from this sequence of type TResult.
+     */
+    ofType<TResult extends T>(ctor: Constructor<TResult>): ILinqObject<TResult>;
+    /**
      * Inverts the order of this elements in a sequence.
      * @return A sequence whose elements correspond to those of this input sequence in reverse order.
      */
@@ -1350,6 +1370,10 @@ class LinqWrapper<T> implements ILinqObject<T> {
 
     minMax(selector: Selector<T, number> = defaultNumberSelector): { min: number, max: number } {
         return minMax(this.iterable, selector);
+    }
+
+    ofType<TResult extends T>(ctor: Constructor<TResult>): ILinqObject<TResult> {
+        return new LinqWrapper(ofType(this.iterable, ctor));
     }
 
     reverse(): ILinqObject<T> {
