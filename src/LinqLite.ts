@@ -1249,6 +1249,11 @@ export interface ISequence<T> extends Iterable<T> {
      */
     firstOrUndefined(predicate?: Predicate<T>): T | undefined;
 
+    /**
+     * Iterate through this sequence and perform the specified action on each element.
+     * @param action the action to apply to each element.
+     */
+    foreach(action: (element: T) => void): void;
 
     /**
      * Groups the elements of this sequence according to a specified key selector function and projects the elements for each group by using a specified function.
@@ -1599,6 +1604,12 @@ class Sequence<T> implements ISequence<T> {
 
     firstOrUndefined(predicate: Predicate<T> = defaultPredicate): T | undefined {
         return firstOrUndefined(this.iterable, predicate);
+    }
+
+    foreach(action: (element: T) => void): void {
+        for (let item of this.iterable) {
+            action(item);
+        }
     }
 
     groupBy<TKey, TElement>(keySelector: Selector<T, TKey>,
