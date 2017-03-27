@@ -85,11 +85,13 @@ export function aggregateWithSeed<T, TAccumulate>(source: Iterable<T>,
  * @param predicate A function to test each element for a condition.
  * @return true if every element of the source sequence passes the test in the specified predicate, or if the sequence is empty; otherwise, false.
  */
-export function all<T>(source: Iterable<T>, predicate: Predicate<T>): boolean {
+export function all<T>(source: Iterable<T>, predicate: IndexedPredicate<T>): boolean {
+    let i = 0;
     for (let item of source) {
-        if (!predicate(item)) {
+        if (!predicate(item, i)) {
             return false;
         }
+        ++i;
     }
 
     return true;
@@ -101,11 +103,13 @@ export function all<T>(source: Iterable<T>, predicate: Predicate<T>): boolean {
  * @param predicate A function to test each element for a condition.
  * @return true if any elements in the source sequence pass the test in the specified predicate; otherwise, false.
  */
-export function any<T>(source: Iterable<T>, predicate: Predicate<T> = defaultPredicate): boolean {
+export function any<T>(source: Iterable<T>, predicate: IndexedPredicate<T> = defaultPredicate): boolean {
+    let i = 0;
     for (let item of source) {
-        if (predicate(item)) {
+        if (predicate(item, i)) {
             return true;
         }
+        ++i;
     }
 
     return false;
@@ -1165,13 +1169,13 @@ export interface ISequence<T> extends Iterable<T> {
      * @param predicate A function to test each element for a condition.
      * @return true if every element of the source sequence passes the test in the specified predicate, or if the sequence is empty; otherwise, false.
      */
-    all(predicate: Predicate<T>): boolean;
+    all(predicate: IndexedPredicate<T>): boolean;
     /**
      * Determines whether any element of this  sequence satisfies a condition.
      * @param predicate A function to test each element for a condition.
      * @return true if any elements in the source sequence pass the test in the specified predicate; otherwise, false.
      */
-    any(predicate?: Predicate<T>): boolean;
+    any(predicate?: IndexedPredicate<T>): boolean;
 
     /**
      * Append the specified element to this sequence, and return as a new sequence
@@ -1562,11 +1566,11 @@ class Sequence<T> implements ISequence<T> {
         return aggregateWithSeed(this.iterable, seed, func);
     }
 
-    all(predicate: Predicate<T>): boolean {
+    all(predicate: IndexedPredicate<T>): boolean {
         return all(this.iterable, predicate);
     }
 
-    any(predicate: Predicate<T> = defaultPredicate): boolean {
+    any(predicate: IndexedPredicate<T> = defaultPredicate): boolean {
         return any(this.iterable, predicate);
     }
 
