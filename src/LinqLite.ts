@@ -440,7 +440,39 @@ export function* groupByHash<TSource, TKey, TElement>(source: Iterable<TSource>,
     }
 }
 
-// todo: groupJoin and overloads
+/**
+ * Correlates the elements of two sequences based on matching keys.
+ * @param outer The first sequence to join.
+ * @param inner The sequence to join to the first sequence.
+ * @param outerKeySelector A function to extract the join key from each element of the first sequence.
+ * @param innerKeySelector A function to extract the join key from each element of the second sequence.
+ * @param resultSelector A function to create a result element from two matching elements.
+ * @param keyComparer An EqualityComparer<T> to compare keys.
+ * @return An Iterable<T> that contains elements of type TResult that are obtained by performing a grouped join on two sequences.
+ */
+export function* groupJoin<TOuter, TInner, TKey, TResult>(
+    outer: Iterable<TOuter>,
+    inner: Iterable<TInner>,
+    outerKeySelector: Selector<TOuter, TKey>,
+    innerKeySelector: Selector<TInner, TKey>,
+    resultSelector: (outer: TOuter, inner: Iterable<TInner>) => TResult,
+    keyComparer: EqualityComparer<TKey> = defaultEqualityComparer): Iterable<TResult> {
+
+    for (let outerElement of outer) {
+        const outerKey = outerKeySelector(outerElement);
+
+        const innerCollection = new Array<TInner>();
+        for (let innerElement of inner) {
+            const innerKey = innerKeySelector(innerElement);
+
+            if (keyComparer(outerKey, innerKey)) {
+                innerCollection.push(innerElement);
+            }
+        }
+
+        yield resultSelector(outerElement, innerCollection);
+    }
+}
 
 /**
  * Produces the set intersection of two sequences by using the specified EqualityComparer<T> to compare values.
@@ -474,7 +506,37 @@ export function* intersectHash<T>(first: Iterable<T>, second: Iterable<T>, hash:
     }
 }
 
-// todo: join and overloads
+/**
+ * Correlates the elements of two sequences based on matching keys.
+ * @param outer The first sequence to join.
+ * @param inner The sequence to join to the first sequence.
+ * @param outerKeySelector A function to extract the join key from each element of the first sequence.
+ * @param innerKeySelector A function to extract the join key from each element of the second sequence.
+ * @param resultSelector A function to create a result element from two matching elements.
+ * @param keyComparer An EqualityComparer<T> to compare keys.
+ * @return An Iterable<T> that has elements of type TResult that are obtained by performing an inner join on two sequences.
+ */
+export function* join<TOuter, TInner, TKey, TResult>(
+    outer: Iterable<TOuter>,
+    inner: Iterable<TInner>,
+    outerKeySelector: Selector<TOuter, TKey>,
+    innerKeySelector: Selector<TInner, TKey>,
+    resultSelector: (outer: TOuter, inner: TInner) => TResult,
+    keyComparer: EqualityComparer<TKey> = defaultEqualityComparer): Iterable<TResult> {
+
+    for (let outerElement of outer) {
+        const outerKey = outerKeySelector(outerElement);
+
+        for (let innerElement of inner) {
+            const innerKey = innerKeySelector(innerElement);
+
+            if (keyComparer(outerKey, innerKey)) {
+                yield resultSelector(outerElement, innerElement);
+            }
+        }
+    }
+}
+
 
 /**
  * Returns the last element of a sequence that satisfies a specified condition.
@@ -1156,6 +1218,23 @@ export interface ISequence<T> extends Iterable<T> {
         keyHash?: Hash<TKey>)
         : ISequence<IGrouping<TKey, TElement>>;
 
+
+    /**
+     * Correlates the elements of this and another sequence based on matching keys.
+     * @param inner The sequence to join to the first sequence.
+     * @param outerKeySelector A function to extract the join key from each element of the first sequence.
+     * @param innerKeySelector A function to extract the join key from each element of the second sequence.
+     * @param resultSelector A function to create a result element from two matching elements.
+     * @param keyComparer An EqualityComparer<T> to compare keys.
+     * @return An ISequence<T> that contains elements of type TResult that are obtained by performing a grouped join on two sequences.
+     */
+    groupJoin<TInner, TKey, TResult>(
+        inner: Iterable<TInner>,
+        outerKeySelector: Selector<T, TKey>,
+        innerKeySelector: Selector<TInner, TKey>,
+        resultSelector: (outer: T, inner: Iterable<TInner>) => TResult,
+        keyComparer?: EqualityComparer<TKey>): ISequence<TResult>;
+
     /**
      * Produces the set intersection of this and another sequence by using the specified EqualityComparer<T> to compare values.
      * @param other An Iterable<T> whose distinct elements that also appear in the first sequence will be returned.
@@ -1170,6 +1249,22 @@ export interface ISequence<T> extends Iterable<T> {
      * @return A sequence that contains the elements that form the set intersection of this and the other sequences.
      */
     intersectHash(other: Iterable<T>, hash?: Hash<T>): ISequence<T>;
+    /**
+     * Correlates the elements of this and another sequence based on matching keys.
+     * @param inner The sequence to join to the first sequence.
+     * @param outerKeySelector A function to extract the join key from each element of the first sequence.
+     * @param innerKeySelector A function to extract the join key from each element of the second sequence.
+     * @param resultSelector A function to create a result element from two matching elements.
+     * @param keyComparer An EqualityComparer<T> to compare keys.
+     * @return An ISequence<T> that has elements of type TResult that are obtained by performing an inner join on two sequences.
+     */
+    join<TInner, TKey, TResult>(
+        inner: Iterable<TInner>,
+        outerKeySelector: Selector<T, TKey>,
+        innerKeySelector: Selector<TInner, TKey>,
+        resultSelector: (outer: T, inner: TInner) => TResult,
+        keyComparer?: EqualityComparer<TKey>): ISequence<TResult>;
+
     /**
      * Returns the last element of this sequence that satisfies a specified condition.
      * @param predicate A function to test each element for a condition.
@@ -1441,8 +1536,18 @@ class Sequence<T> implements ISequence<T> {
         return new Sequence<IGroupingSequence<TKey, TElement>>(select(groups, g => new GroupingSequence<TKey, TElement>(g)));
     }
 
-    undefinedIfEmpty(): ISequence<T | undefined> {
-        return new Sequence<T | undefined>(undefinedIfEmpty(this.iterable));
+    groupJoin<TInner, TKey, TResult>(
+        inner: Iterable<TInner>,
+        outerKeySelector: Selector<T, TKey>,
+        innerKeySelector: Selector<TInner, TKey>,
+        resultSelector: (outer: T, inner: Iterable<TInner>) => TResult,
+        keyComparer: EqualityComparer<TKey> = defaultEqualityComparer): ISequence<TResult> {
+        return new Sequence<TResult>(groupJoin(this.iterable,
+            inner,
+            outerKeySelector,
+            innerKeySelector,
+            resultSelector,
+            keyComparer));
     }
 
     intersect(other: Iterable<T>, comparer: EqualityComparer<T> = defaultEqualityComparer): ISequence<T> {
@@ -1451,6 +1556,20 @@ class Sequence<T> implements ISequence<T> {
 
     intersectHash(other: Iterable<T>, hash: Hash<T> = defaultHash): ISequence<T> {
         return new Sequence<T>(intersectHash(this.iterable, other, hash));
+    }
+
+    join<TInner, TKey, TResult>(
+        inner: Iterable<TInner>,
+        outerKeySelector: Selector<T, TKey>,
+        innerKeySelector: Selector<TInner, TKey>,
+        resultSelector: (outer: T, inner: TInner) => TResult,
+        keyComparer: EqualityComparer<TKey> = defaultEqualityComparer): ISequence<TResult> {
+        return new Sequence<TResult>(join(this.iterable,
+            inner,
+            outerKeySelector,
+            innerKeySelector,
+            resultSelector,
+            keyComparer));
     }
 
     last(predicate: Predicate<T> = defaultPredicate): T {
@@ -1538,6 +1657,10 @@ class Sequence<T> implements ISequence<T> {
     toMap<TElement>(keySelector: Selector<T, string>,
         valueSelector: Selector<T, TElement> = defaultSelector): StringKeyMap<TElement> {
         return toMap<T, TElement>(this.iterable, keySelector, valueSelector);
+    }
+
+    undefinedIfEmpty(): ISequence<T | undefined> {
+        return new Sequence<T | undefined>(undefinedIfEmpty(this.iterable));
     }
 
     union(other: Iterable<T>, comparer: EqualityComparer<T> = defaultEqualityComparer): ISequence<T> {
