@@ -8,7 +8,6 @@ export type Hash<T> = (e: T) => number;
 
 type NumberKeyMap<T> = { [key: number]: T };
 type StringKeyMap<T> = { [key: string]: T };
-interface IGrouping<TKey, TElement> extends Iterable<TElement> { key: TKey };
 type Constructor<T> = new (...args: any[]) => T;
 
 const defaultNumberSelector = (e: any) => e.valueOf();
@@ -354,6 +353,11 @@ export function firstOrUndefined<T>(source: Iterable<T>, predicate: Predicate<T>
 
     return undefined;
 }
+
+/**
+ * Represents a collection of objects that have a common key.
+ */
+export interface IGrouping<TKey, TElement> extends Iterable<TElement> { key: TKey };
 
 class Grouping<TKey, TElement> implements IGrouping<TKey, TElement> {
     readonly array = new Array<TElement>();
@@ -1338,25 +1342,6 @@ export interface ISequence<T> extends Iterable<T> {
         ISequence<TResult>;
 }
 
-/**
- * Represents a sorted sequence.
- */
-export interface IOrderedSequence<T> extends ISequence<T> {
-    /**
-     * Performs a subsequent ordering of the elements in this sequence in ascending order by using a specified comparer.
-     * @param keySelector A function to extract a key from each element.
-     * @param comparer An Comparer<T> to compare keys.
-     * @returns An IOrderedEnumerable<TElement> whose elements are sorted according to a key.
-     */
-    thenBy<TKey>(keySelector: Selector<T, TKey>, comparer?: Comparer<TKey>): IOrderedSequence<T>;
-    /**
-     * Performs a subsequent ordering of the elements in this sequence in descending order by using a specified comparer.
-     * @param keySelector A function to extract a key from each element.
-     * @param comparer An Comparer<T> to compare keys.
-     * @returns An IOrderedEnumerable<TElement> whose elements are sorted in descending according to a key.
-     */
-    thenByDescending<TKey>(keySelector: Selector<T, TKey>, comparer?: Comparer<TKey>): IOrderedSequence<T>;
-}
 
 class Sequence<T> implements ISequence<T> {
 
@@ -1426,7 +1411,6 @@ class Sequence<T> implements ISequence<T> {
         return elementAtOrUndefined(this.iterable, index);
     }
 
-
     except(other: Iterable<T>, comparer: EqualityComparer<T> = defaultEqualityComparer): ISequence<T> {
         return new Sequence<T>(except(this.iterable, other, comparer));
     }
@@ -1446,13 +1430,15 @@ class Sequence<T> implements ISequence<T> {
     groupBy<TKey, TElement>(keySelector: Selector<T, TKey>,
         elementSelector: Selector<T, TElement> = defaultSelector,
         keyComparer: EqualityComparer<TKey> = defaultEqualityComparer): ISequence<IGrouping<TKey, TElement>> {
-        return new Sequence<IGrouping<TKey, TElement>>(groupBy<T, TKey, TElement>(this.iterable, keySelector, elementSelector, keyComparer));
+        const groups = groupBy<T, TKey, TElement>(this.iterable, keySelector, elementSelector, keyComparer);
+        return new Sequence<IGroupingSequence<TKey, TElement>>(select(groups, g => new GroupingSequence<TKey, TElement>(g)));
     }
 
     groupByHash<TKey, TElement>(keySelector: Selector<T, TKey>,
         elementSelector: Selector<T, TElement> = defaultSelector,
         keyHash: Hash<TKey> = defaultHash): ISequence<IGrouping<TKey, TElement>> {
-        return new Sequence<IGrouping<TKey, TElement>>(groupByHash<T, TKey, TElement>(this.iterable, keySelector, elementSelector, keyHash));
+        const groups = groupByHash<T, TKey, TElement>(this.iterable, keySelector, elementSelector, keyHash);
+        return new Sequence<IGroupingSequence<TKey, TElement>>(select(groups, g => new GroupingSequence<TKey, TElement>(g)));
     }
 
     undefinedIfEmpty(): ISequence<T | undefined> {
@@ -1572,7 +1558,43 @@ class Sequence<T> implements ISequence<T> {
     }
 }
 
-export class OrderedSequence<T> extends Sequence<T> implements IOrderedSequence<T> {
+/**
+ * Represents a sequence of objects that have a common key.
+ */
+export interface IGroupingSequence<TKey, T> extends ISequence<T> {
+    readonly key: TKey;
+}
+
+class GroupingSequence<TKey, T> extends Sequence<T> implements IGroupingSequence<TKey, T> {
+
+    readonly key: TKey;
+    constructor(group: IGrouping<TKey, T>) {
+        super(group);
+        this.key = group.key;
+    }
+}
+
+/**
+ * Represents a sorted sequence.
+ */
+export interface IOrderedSequence<T> extends ISequence<T> {
+    /**
+     * Performs a subsequent ordering of the elements in this sequence in ascending order by using a specified comparer.
+     * @param keySelector A function to extract a key from each element.
+     * @param comparer An Comparer<T> to compare keys.
+     * @returns An IOrderedEnumerable<TElement> whose elements are sorted according to a key.
+     */
+    thenBy<TKey>(keySelector: Selector<T, TKey>, comparer?: Comparer<TKey>): IOrderedSequence<T>;
+    /**
+     * Performs a subsequent ordering of the elements in this sequence in descending order by using a specified comparer.
+     * @param keySelector A function to extract a key from each element.
+     * @param comparer An Comparer<T> to compare keys.
+     * @returns An IOrderedEnumerable<TElement> whose elements are sorted in descending according to a key.
+     */
+    thenByDescending<TKey>(keySelector: Selector<T, TKey>, comparer?: Comparer<TKey>): IOrderedSequence<T>;
+}
+
+class OrderedSequence<T> extends Sequence<T> implements IOrderedSequence<T> {
     constructor(private readonly orderedIterable: IOrderedIterable<T>) {
         super(orderedIterable);
     }
