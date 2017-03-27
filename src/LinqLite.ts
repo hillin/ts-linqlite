@@ -752,6 +752,30 @@ export function* prepend<T>(source: Iterable<T>, element: T): Iterable<T> {
     }
 }
 
+/**
+ * Generates a sequence of integral numbers within a specified range.
+ * @param start The value of the first integer in the sequence.
+ * @param count The number of sequential integers to generate.
+ * @return An Iterable<Int32> that contains a range of sequential integral numbers.
+ */
+export function* range(start: number, count: number): Iterable<number> {
+    for (let i = 0; i < count; ++i) {
+        yield i + start;
+    }
+}
+
+/**
+ * Generates a sequence that contains one repeated value.
+ * @param element The value to be repeated.
+ * @param count The number of times to repeat the value in the generated sequence.
+ * @return An Iterable<T> that contains a repeated value.
+ */
+export function* repeat<T>(element: T, count: number): Iterable<T> {
+    for (let i = 0; i < count; ++i) {
+        yield element;
+    }
+}
+
 function* reverseArray<T>(source: T[]): Iterable<T> {
     for (let i = source.length - 1; i >= 0; --i) {
         yield source[i];
