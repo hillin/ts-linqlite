@@ -5,7 +5,8 @@ export type IndexedPredicate<T> = (e: T, index: number) => boolean;
 export type EqualityComparer<T> = (a: T, b: T) => boolean;
 export type Hash<T> = (e: T) => number;
 
-type HashSet<T> = { [key: number]: T };
+type NumberKeyMap<T> = { [key: number]: T };
+type StringKeyMap<T> = { [key: string]: T };
 interface IGrouping<TKey, TElement> extends Iterable<TElement> { key: TKey };
 
 const defaultNumberSelector = (e: any) => e.valueOf();
@@ -18,8 +19,8 @@ function throwEmptySequence(): never {
     throw new Error("empty sequence");
 }
 
-function makeHashSet<T>(source: Iterable<T>, hash: Hash<T>): HashSet<T> {
-    const hashSet: HashSet<T> = {};
+function makeHashSet<T>(source: Iterable<T>, hash: Hash<T>): NumberKeyMap<T> {
+    const hashSet: NumberKeyMap<T> = {};
     for (let item of source) {
         hashSet[hash(item)] = item;
     }
@@ -407,7 +408,7 @@ export function* groupByHash<TSource, TKey, TElement>(source: Iterable<TSource>,
     keyHash: Hash<TKey> = defaultHash)
     : Iterable<IGrouping<TKey, TElement>> {
 
-    const groups: HashSet<Grouping<TKey, TElement>> = {};
+    const groups: NumberKeyMap<Grouping<TKey, TElement>> = {};
 
     for (let item of source) {
         const key = keySelector(item);
@@ -777,8 +778,27 @@ export function toArray<T>(source: Iterable<T>): T[] {
     return array;
 }
 
-// todo: toDictionary
-// todo: toLookup
+/**
+ * Creates a map object from a sequence according to specified key selector and element selector functions.
+ * @param source An Iterable<T> to create a map object from.
+ * @param keySelector A function to extract a string key from each element.
+ * @param valueSelector A transform function to produce a result element value from each element.
+ * @return A map object that contains values of type TElement selected from the input sequence.
+ */
+export function toMap<T, TElement>(source: Iterable<T>,
+    keySelector: Selector<T, string>,
+    valueSelector: Selector<T, TElement> = defaultSelector): StringKeyMap<TElement> {
+    const object: StringKeyMap<TElement> = {};
+    for (let item of source) {
+        const key = keySelector(item);
+        if (object[key] !== undefined) {
+            throw new Error("duplicated element");
+        }
+        object[key] = valueSelector(item);
+    }
+
+    return object;
+}
 
 /**
  * Returns undefined in a singleton collection if the sequence is empty.
@@ -835,7 +855,7 @@ export function* union<T>(first: Iterable<T>, second: Iterable<T>, comparer: Equ
  * @return An Iterable<T> that contains the elements from both input sequences, excluding duplicates.
  */
 export function* unionHash<T>(first: Iterable<T>, second: Iterable<T>, hash: Hash<T> = defaultHash): Iterable<T> {
-    const items: HashSet<T> = {};
+    const items: NumberKeyMap<T> = {};
     for (let item of first) {
         const hashValue = hash(item);
         if (items[hashValue] === undefined) {
@@ -1159,6 +1179,15 @@ export interface ILinqObject<T> extends Iterable<T> {
     toArray(): T[];
 
     /**
+     * Creates a map object from this sequence according to specified key selector and element selector functions.
+     * @param keySelector A function to extract a string key from each element.
+     * @param valueSelector A transform function to produce a result element value from each element.
+     * @return A map object that contains values of type TElement selected from this sequence.
+     */
+    toMap<TElement>(keySelector: Selector<T, string>,
+        valueSelector?: Selector<T, TElement>): StringKeyMap<TElement>;
+
+    /**
      * Returns undefined in a singleton collection if this sequence is empty.
      * @return An Iterable<T | undefined> object that contains undefined if this sequence is empty; otherwise, this sequence.
      */
@@ -1369,6 +1398,11 @@ class LinqWrapper<T> implements ILinqObject<T> {
 
     toArray(): T[] {
         return toArray(this.iterable);
+    }
+
+    toMap<TElement>(keySelector: Selector<T, string>,
+        valueSelector: Selector<T, TElement> = defaultSelector): StringKeyMap<TElement> {
+        return toMap<T, TElement>(this.iterable, keySelector, valueSelector);
     }
 
     union(other: Iterable<T>, comparer: EqualityComparer<T> = defaultEqualityComparer): ILinqObject<T> {
