@@ -3,6 +3,7 @@ export type IndexedSelector<T, TResult> = (e: T, index: number) => TResult;
 export type Predicate<T> = (e: T) => boolean;
 export type IndexedPredicate<T> = (e: T, index: number) => boolean;
 export type EqualityComparer<T> = (a: T, b: T) => boolean;
+export type Comparer<T> = (a: T, b: T) => number;
 export type Hash<T> = (e: T) => number;
 
 type NumberKeyMap<T> = { [key: number]: T };
@@ -14,7 +15,13 @@ const defaultNumberSelector = (e: any) => e.valueOf();
 const defaultSelector = (e: any) => e;
 const defaultPredicate = () => true;
 const defaultEqualityComparer = (a: any, b: any) => a === b;
+const defaultComparer = (a: any, b: any) => a - b;
 const defaultHash = (e: any) => e.valueOf();
+
+
+function invertComparer<T>(comparer: Comparer<T>): Comparer<T> {
+    return (a: T, b: T) => -comparer(a, b);
+}
 
 function throwEmptySequence(): never {
     throw new Error("empty sequence");
@@ -578,8 +585,81 @@ export function* ofType<T, TResult extends T>(source: Iterable<T>, ctor: Constru
     }
 }
 
-// todo: orderBy
-// todo: orderByDescending
+export interface IOrderedIterable<T> extends Iterable<T> {
+    /**
+     * Performs a subsequent ordering of the elements in this sequence in ascending order by using a specified comparer.
+     * @param keySelector A function to extract a key from each element.
+     * @param comparer An Comparer<T> to compare keys.
+     * @returns An IOrderedEnumerable<TElement> whose elements are sorted according to a key.
+     */
+    thenBy<TKey>(keySelector: Selector<T, TKey>, comparer?: Comparer<TKey>): IOrderedIterable<T>;
+    /**
+     * Performs a subsequent ordering of the elements in this sequence in descending order by using a specified comparer.
+     * @param keySelector A function to extract a key from each element.
+     * @param comparer An Comparer<T> to compare keys.
+     * @returns An IOrderedEnumerable<TElement> whose elements are sorted in descending according to a key.
+     */
+    thenByDescending<TKey>(keySelector: Selector<T, TKey>, comparer?: Comparer<TKey>): IOrderedIterable<T>;
+}
+
+class OrderInstructions<T> {
+    constructor(readonly keySelector: Selector<T, any>, readonly comparer: Comparer<any>) { }
+}
+
+class OrderedIterable<T> implements IOrderedIterable<T> {
+    constructor(readonly source: T[], readonly instructions: Array<OrderInstructions<T>>) { }
+
+    [Symbol.iterator](): Iterator<T> {
+
+        this.source.sort((a: T, b: T) => {
+            let result = 0;
+            for (let instruction of this.instructions) {
+                result = instruction.comparer(instruction.keySelector(a), instruction.keySelector(b));
+                if (result !== 0) {
+                    return result;
+                }
+            }
+            return result;
+        });
+
+        return this.source[Symbol.iterator]();
+    }
+
+    thenBy<TKey>(keySelector: Selector<T, TKey>, comparer: Comparer<TKey> = defaultComparer): OrderedIterable<T> {
+        return new OrderedIterable<T>(this.source, [...this.instructions, new OrderInstructions(keySelector, comparer)]);
+    }
+
+    thenByDescending<TKey>(keySelector: Selector<T, TKey>,
+        comparer: Comparer<TKey> = defaultComparer): OrderedIterable<T> {
+        return this.thenBy(keySelector, invertComparer(comparer));
+    }
+}
+
+/**
+ * Sorts the elements of a sequence in ascending order by using a specified comparer.
+ * @param source A sequence of values to order.
+ * @param keySelector A function to extract a key from an element.
+ * @param comparer A Comparer<T> to compare keys.
+ * @return An IOrderedIterable<TElement> whose elements are sorted according to a key.
+ */
+export function orderBy<T, TKey>(source: Iterable<T>,
+    keySelector: Selector<T, TKey>,
+    comparer: Comparer<TKey> = defaultComparer): IOrderedIterable<T> {
+    return new OrderedIterable(toArray(source), [new OrderInstructions(keySelector, comparer)]);
+}
+
+/**
+ * Sorts the elements of a sequence in descending order by using a specified comparer.
+ * @param source A sequence of values to order.
+ * @param keySelector A function to extract a key from an element.
+ * @param comparer A Comparer<T> to compare keys.
+ * @return An IOrderedIterable<TElement> whose elements are sorted in descending according to a key.
+ */
+export function orderByDescending<T, TKey>(source: Iterable<T>,
+    keySelector: Selector<T, TKey>,
+    comparer: Comparer<TKey> = defaultComparer): IOrderedIterable<T> {
+    return orderBy(source, keySelector, invertComparer(comparer));
+}
 
 function* reverseArray<T>(source: T[]): Iterable<T> {
     for (let i = source.length - 1; i >= 0; --i) {
@@ -785,11 +865,7 @@ export function* takeWhile<T>(source: Iterable<T>, predicate: IndexedPredicate<T
  * @return An array that contains the elements from the input sequence.
  */
 export function toArray<T>(source: Iterable<T>): T[] {
-    const array = new Array<T>();
-    for (let item of source) {
-        array.push(item);
-    }
-    return array;
+    return [...source];
 }
 
 /**
@@ -930,7 +1006,7 @@ export function* zip<TFirst, TSecond, TResult>(first: Iterable<TFirst>,
 
 }
 
-export interface ILinqObject<T> extends Iterable<T> {
+export interface ISequence<T> extends Iterable<T> {
     /**
      * Applies an accumulator function over this sequence.
      * @param func An accumulator function to be invoked on each element.
@@ -967,15 +1043,15 @@ export interface ILinqObject<T> extends Iterable<T> {
     /**
      * Assert the elements of this sequence as the specified type.
      * @param source The Iterable<T> that contains the elements to be asserted as type TResult.
-     * @return An ILinqObject<TResult> that contains each element of the source sequence asserted to the specified type.
+     * @return A sequence<TResult> that contains each element of the source sequence asserted to the specified type.
      */
-    assertType<TResult extends T>(): ILinqObject<TResult>;
+    assertType<TResult extends T>(): ISequence<TResult>;
     /**
      * Concatenates this sequence with another sequence.
      * @param other The sequence to concatenate to this sequence.
-     * @return An ILinqObject<T> that contains the concatenated elements of the two input sequences.
+     * @return A sequence<T> that contains the concatenated elements of the two input sequences.
      */
-    concat(other: Iterable<T>): ILinqObject<T>;
+    concat(other: Iterable<T>): ISequence<T>;
     /**
      * Determines whether this sequence contains a specified element by using a specified EqualityComparer<T>.
      * @param value The value to locate in the sequence.
@@ -993,21 +1069,21 @@ export interface ILinqObject<T> extends Iterable<T> {
     /**
      * Returns the elements of this sequence or the specified value in a singleton collection if the sequence is empty.
      * @param defaultValue The value to return if this sequence is empty.
-     * @return An ILinqObject<T> that contains defaultValue if source is empty; otherwise, source.
+     * @return A sequence<T> that contains defaultValue if source is empty; otherwise, source.
      */
-    defaultIfEmpty(defaultValue: T): ILinqObject<T>;
+    defaultIfEmpty(defaultValue: T): ISequence<T>;
     /**
      * Returns distinct elements from this sequence by using a specified EqualityComparer<T> to compare values.
      * @param comparer An EqualityComparer<T> to compare values.
-     * @return An ILinqObject<T> that contains distinct elements from this sequence.
+     * @return A sequence<T> that contains distinct elements from this sequence.
      */
-    distinct(comparer?: EqualityComparer<T>): ILinqObject<T>;
+    distinct(comparer?: EqualityComparer<T>): ISequence<T>;
     /**
      * Returns distinct elements from this sequence by using a specified Hash<T> to calculate hash values.
      * @param hash A Hash<T> to calculate hash values.
-     * @return An ILinqObject<T> that contains distinct elements from the source sequence.
+     * @return A sequence<T> that contains distinct elements from the source sequence.
      */
-    distinctHash(hash?: Hash<T>): ILinqObject<T>;
+    distinctHash(hash?: Hash<T>): ISequence<T>;
     /**
      * Returns the element at a specified index in this sequence.
      * @param index The zero-based index of the element to retrieve.
@@ -1027,14 +1103,14 @@ export interface ILinqObject<T> extends Iterable<T> {
      * @param comparer An EqualityComparer<T> to compare values.
      * @return A sequence that contains the set difference of the elements of this and ther other sequences.
      */
-    except(other: Iterable<T>, comparer?: EqualityComparer<T>): ILinqObject<T>;
+    except(other: Iterable<T>, comparer?: EqualityComparer<T>): ISequence<T>;
     /**
      * Produces the set difference of this and another sequence by using the specified Hash<T> to calculate hash values.
      * @param other An Iterable<T> whose elements that also occur in the this sequence will cause those elements to be removed from the returned
      * @param hash A Hash<T> to calculate hash values.
      * @return A sequence that contains the set difference of the elements of this and ther other sequences.
      */
-    exceptHash(other: Iterable<T>, hash?: Hash<T>): ILinqObject<T>;
+    exceptHash(other: Iterable<T>, hash?: Hash<T>): ISequence<T>;
     /**
      * Returns the first element in this sequence that satisfies a specified condition.
      * @param predicate A function to test each element for a condition.
@@ -1055,12 +1131,12 @@ export interface ILinqObject<T> extends Iterable<T> {
      * @param keySelector A function to extract the key for each element.
      * @param elementSelector A function to map each source element to an element in the IGrouping<TKey, TElement>.
      * @param keyComparer An EqualityComparer<TKey> to compare keys.
-     * @return An ILinqObject<IGrouping<TKey, TElement>> where each IGrouping<TKey, TElement> object contains a collection of objects of type TElement and a key.
+     * @return A sequence<IGrouping<TKey, TElement>> where each IGrouping<TKey, TElement> object contains a collection of objects of type TElement and a key.
      */
     groupBy<TSource, TKey, TElement>(keySelector: Selector<TSource, TKey>,
         elementSelector?: Selector<TSource, TElement>,
         keyComparer?: EqualityComparer<TKey>)
-        : ILinqObject<IGrouping<TKey, TElement>>;
+        : ISequence<IGrouping<TKey, TElement>>;
 
 
     /**
@@ -1069,12 +1145,12 @@ export interface ILinqObject<T> extends Iterable<T> {
      * @param keySelector A function to extract the key for each element.
      * @param elementSelector A function to map each source element to an element in the IGrouping<TKey, TElement>.
      * @param keyHash An Hash<TKey> to calculate key hash values.
-     * @return An ILinqObject<IGrouping<TKey, TElement>> where each IGrouping<TKey, TElement> object contains a collection of objects of type TElement and a key.
+     * @return A sequence<IGrouping<TKey, TElement>> where each IGrouping<TKey, TElement> object contains a collection of objects of type TElement and a key.
      */
     groupByHash<TSource, TKey, TElement>(keySelector: Selector<TSource, TKey>,
         elementSelector?: Selector<TSource, TElement>,
         keyHash?: Hash<TKey>)
-        : ILinqObject<IGrouping<TKey, TElement>>;
+        : ISequence<IGrouping<TKey, TElement>>;
 
     /**
      * Produces the set intersection of this and another sequence by using the specified EqualityComparer<T> to compare values.
@@ -1082,14 +1158,14 @@ export interface ILinqObject<T> extends Iterable<T> {
      * @param comparer An EqualityComparer<T> to compare values.
      * @return A sequence that contains the elements that form the set intersection of this and the other sequences.
      */
-    intersect(other: Iterable<T>, comparer?: EqualityComparer<T>): ILinqObject<T>;
+    intersect(other: Iterable<T>, comparer?: EqualityComparer<T>): ISequence<T>;
     /**
      * Produces the set intersection of this and another sequence by using the specified Hash<T> to calculate hash values.
      * @param other An Iterable<T> whose distinct elements that also appear in the first sequence will be returned.
      * @param hash An Hash<T> to calculate hash values.
      * @return A sequence that contains the elements that form the set intersection of this and the other sequences.
      */
-    intersectHash(other: Iterable<T>, hash?: Hash<T>): ILinqObject<T>;
+    intersectHash(other: Iterable<T>, hash?: Hash<T>): ISequence<T>;
     /**
      * Returns the last element of this sequence that satisfies a specified condition.
      * @param predicate A function to test each element for a condition.
@@ -1123,26 +1199,45 @@ export interface ILinqObject<T> extends Iterable<T> {
     /**
      * Filters the elements of this sequence based on a specified type.
      * @param ctor The constructor function of type TResult to test element types of this sequence.
-     * @return An ILinqObject<T> that contains elements from this sequence of type TResult.
+     * @return A sequence<T> that contains elements from this sequence of type TResult.
      */
-    ofType<TResult extends T>(ctor: Constructor<TResult>): ILinqObject<TResult>;
+    ofType<TResult extends T>(ctor: Constructor<TResult>): ISequence<TResult>;
+
+    /**
+     * Sorts the elements of this sequence in ascending order by using a specified comparer.
+     * @param keySelector A function to extract a key from an element.
+     * @param comparer A Comparer<T> to compare keys.
+     * @return An IOrderedIterable<TElement> whose elements are sorted according to a key.
+     */
+    orderBy<TKey>(keySelector: Selector<T, TKey>,
+        comparer?: Comparer<TKey>): IOrderedSequence<T>;
+
+    /**
+     * Sorts the elements of this sequence in descending order by using a specified comparer.
+     * @param keySelector A function to extract a key from an element.
+     * @param comparer A Comparer<T> to compare keys.
+     * @return An IOrderedIterable<TElement> whose elements are sorted in descending according to a key.
+     */
+    orderByDescending<TKey>(keySelector: Selector<T, TKey>,
+        comparer?: Comparer<TKey>): IOrderedSequence<T>;
+
     /**
      * Inverts the order of this elements in a sequence.
      * @return A sequence whose elements correspond to those of this input sequence in reverse order.
      */
-    reverse(): ILinqObject<T>;
+    reverse(): ISequence<T>;
     /**
      * Projects each element of this sequence into a new form by optionally incorporating the element's index.
      * @param selector A transform function to apply to each element; the optional second parameter of the function represents the index of the element.
      * @return An Iterator<T> whose elements are the result of invoking the transform function on each element of source.
      */
-    select<TResult>(selector?: IndexedSelector<T, TResult>): ILinqObject<TResult>;
+    select<TResult>(selector?: IndexedSelector<T, TResult>): ISequence<TResult>;
     /**
      * Projects each element of this sequence to an Iterable<TResult>, and flattens the resulting sequences into one sequence.
      * @param selector A transform function to apply to each element; the optional second parameter of the function represents the index of the element.
-     * @return An ILinqObject<T> whose elements are the result of invoking the one-to-many transform function on each element of this sequence.
+     * @return A sequence<T> whose elements are the result of invoking the one-to-many transform function on each element of this sequence.
      */
-    selectMany<TResult>(selector?: IndexedSelector<T, Iterable<TResult>>): ILinqObject<TResult>;
+    selectMany<TResult>(selector?: IndexedSelector<T, Iterable<TResult>>): ISequence<TResult>;
     /**
      * Determines whether this sequence is equal to another by comparing their elements by using a specified EqualityComparer<T>.
      * @param other The Iterable<T> to compare to this sequence.
@@ -1165,15 +1260,15 @@ export interface ILinqObject<T> extends Iterable<T> {
     /**
      * Bypasses a specified number of elements in this sequence and then returns the remaining elements.
      * @param count The number of elements to skip before returning the remaining elements.
-     * @return An ILinqObject<T> that contains the elements that occur after the specified index in this sequence.
+     * @return A sequence<T> that contains the elements that occur after the specified index in this sequence.
      */
-    skip(count: number): ILinqObject<T>;
+    skip(count: number): ISequence<T>;
     /**
      * Bypasses elements in this sequence as long as a specified condition is true and then returns the remaining elements.
      * @param predicate A function to test each source element for a condition; the second parameter of the function represents the index of the source element.
-     * @return An ILinqObject<T> that contains the elements from this sequence starting at the first element in the linear series that does not pass the test specified by predicate.
+     * @return A sequence<T> that contains the elements from this sequence starting at the first element in the linear series that does not pass the test specified by predicate.
      */
-    skipWhile(predicate: IndexedPredicate<T>): ILinqObject<T>;
+    skipWhile(predicate: IndexedPredicate<T>): ISequence<T>;
     /**
      * Computes the sum of the sequence of number values that are obtained by invoking a transform function on each element of this sequence.
      * @param selector A transform function to apply to each element.
@@ -1183,15 +1278,15 @@ export interface ILinqObject<T> extends Iterable<T> {
     /**
      * Returns a specified number of contiguous elements from the start of this sequence.
      * @param count The number of elements to return.
-     * @return An ILinqObject<T> that contains the specified number of elements from the start of this sequence.
+     * @return A sequence<T> that contains the specified number of elements from the start of this sequence.
      */
-    take(count: number): ILinqObject<T>;
+    take(count: number): ISequence<T>;
     /**
      * Returns elements from this sequence as long as a specified condition is true.
      * @param predicate A function to test each source element for a condition; the second parameter of the function represents the index of the source element.
      * @return An Iterable<T> that contains elements from the input sequence that occur before the element at which the test no longer passes.
      */
-    takeWhile(predicate: IndexedPredicate<T>): ILinqObject<T>;
+    takeWhile(predicate: IndexedPredicate<T>): ISequence<T>;
     /**
      * Creates an array from this sequence.
      * @return An array that contains the elements from this sequence.
@@ -1211,39 +1306,59 @@ export interface ILinqObject<T> extends Iterable<T> {
      * Returns undefined in a singleton collection if this sequence is empty.
      * @return An Iterable<T | undefined> object that contains undefined if this sequence is empty; otherwise, this sequence.
      */
-    undefinedIfEmpty(): ILinqObject<T | undefined>;
+    undefinedIfEmpty(): ISequence<T | undefined>;
 
     /**
      * Produces the set union of this and another sequence by using a specified EqualityComparer<T>.
      * @param other An Iterable<T> whose distinct elements form the other set for the union.
      * @param comparer The EqualityComparer<T> to compare values.
-     * @return An ILinqObject<T> that contains the elements from both input sequences, excluding duplicates.
+     * @return A sequence<T> that contains the elements from both input sequences, excluding duplicates.
      */
-    union(other: Iterable<T>, comparer?: EqualityComparer<T>): ILinqObject<T>;
+    union(other: Iterable<T>, comparer?: EqualityComparer<T>): ISequence<T>;
     /**
      * Produces the set union of this and another sequence by using a specified Hash<T> to calculate hash values.
      * @param other An Iterable<T> whose distinct elements form the other set for the union.
      * @param hash The Hash<T> to calculate hash values.
      * @return An Iterable<T> that contains the elements from both input sequences, excluding duplicates.
      */
-    unionHash(other: Iterable<T>, hash?: Hash<T>): ILinqObject<T>;
+    unionHash(other: Iterable<T>, hash?: Hash<T>): ISequence<T>;
     /**
      * Filters this sequence of values based on a predicate.
      * @param predicate A function to test each source element for a condition; the second parameter of the function represents the index of the source element.
      * @return An Iterable<T> that contains elements from this sequence that satisfy the condition.
      */
-    where(predicate: IndexedPredicate<T>): ILinqObject<T>;
+    where(predicate: IndexedPredicate<T>): ISequence<T>;
     /**
      * Applies a specified function to the corresponding elements of this and another sequences, producing a sequence of the results.
      * @param second The other sequence to merge.
      * @param resultSelector A function that specifies how to merge the elements from the two sequences.
-     * @return An ILinqObject<T> that contains merged elements of two input sequences.
+     * @return A sequence<T> that contains merged elements of two input sequences.
      */
     zip<TSecond, TResult>(other: Iterable<TSecond>, resultSelector: (first: T, other: TSecond) => TResult):
-        ILinqObject<TResult>;
+        ISequence<TResult>;
 }
 
-class LinqWrapper<T> implements ILinqObject<T> {
+/**
+ * Represents a sorted sequence.
+ */
+export interface IOrderedSequence<T> extends ISequence<T> {
+    /**
+     * Performs a subsequent ordering of the elements in this sequence in ascending order by using a specified comparer.
+     * @param keySelector A function to extract a key from each element.
+     * @param comparer An Comparer<T> to compare keys.
+     * @returns An IOrderedEnumerable<TElement> whose elements are sorted according to a key.
+     */
+    thenBy<TKey>(keySelector: Selector<T, TKey>, comparer?: Comparer<TKey>): IOrderedSequence<T>;
+    /**
+     * Performs a subsequent ordering of the elements in this sequence in descending order by using a specified comparer.
+     * @param keySelector A function to extract a key from each element.
+     * @param comparer An Comparer<T> to compare keys.
+     * @returns An IOrderedEnumerable<TElement> whose elements are sorted in descending according to a key.
+     */
+    thenByDescending<TKey>(keySelector: Selector<T, TKey>, comparer?: Comparer<TKey>): IOrderedSequence<T>;
+}
+
+class Sequence<T> implements ISequence<T> {
 
     constructor(private readonly iterable: Iterable<T>) {
 
@@ -1275,12 +1390,12 @@ class LinqWrapper<T> implements ILinqObject<T> {
         return average(this.iterable, selector);
     }
 
-    assertType<TResult extends T>(): ILinqObject<TResult> {
-        return new LinqWrapper(assertType<T, TResult>(this.iterable));
+    assertType<TResult extends T>(): ISequence<TResult> {
+        return new Sequence(assertType<T, TResult>(this.iterable));
     }
 
-    concat(other: Iterable<T>): ILinqObject<T> {
-        return new LinqWrapper<T>(concat(this.iterable, other));
+    concat(other: Iterable<T>): ISequence<T> {
+        return new Sequence<T>(concat(this.iterable, other));
     }
 
     contains(value: T, comparer: EqualityComparer<T> = defaultEqualityComparer): boolean {
@@ -1291,16 +1406,16 @@ class LinqWrapper<T> implements ILinqObject<T> {
         return count(this.iterable);
     }
 
-    defaultIfEmpty(defaultValue: T): ILinqObject<T> {
-        return new LinqWrapper<T>(defaultIfEmpty(this.iterable, defaultValue));
+    defaultIfEmpty(defaultValue: T): ISequence<T> {
+        return new Sequence<T>(defaultIfEmpty(this.iterable, defaultValue));
     }
 
-    distinct(comparer: EqualityComparer<T> = defaultEqualityComparer): ILinqObject<T> {
-        return new LinqWrapper<T>(distinct(this.iterable));
+    distinct(comparer: EqualityComparer<T> = defaultEqualityComparer): ISequence<T> {
+        return new Sequence<T>(distinct(this.iterable));
     }
 
-    distinctHash(hash: Hash<T> = defaultHash): ILinqObject<T> {
-        return new LinqWrapper<T>(distinctHash(this.iterable, hash));
+    distinctHash(hash: Hash<T> = defaultHash): ISequence<T> {
+        return new Sequence<T>(distinctHash(this.iterable, hash));
     }
 
     elementAt(index: number): T {
@@ -1312,12 +1427,12 @@ class LinqWrapper<T> implements ILinqObject<T> {
     }
 
 
-    except(other: Iterable<T>, comparer: EqualityComparer<T> = defaultEqualityComparer): ILinqObject<T> {
-        return new LinqWrapper<T>(except(this.iterable, other, comparer));
+    except(other: Iterable<T>, comparer: EqualityComparer<T> = defaultEqualityComparer): ISequence<T> {
+        return new Sequence<T>(except(this.iterable, other, comparer));
     }
 
-    exceptHash(other: Iterable<T>, hash: Hash<T> = defaultHash): ILinqObject<T> {
-        return new LinqWrapper<T>(exceptHash(this.iterable, other, hash));
+    exceptHash(other: Iterable<T>, hash: Hash<T> = defaultHash): ISequence<T> {
+        return new Sequence<T>(exceptHash(this.iterable, other, hash));
     }
 
     first(predicate: Predicate<T> = defaultPredicate): T {
@@ -1330,26 +1445,26 @@ class LinqWrapper<T> implements ILinqObject<T> {
 
     groupBy<TKey, TElement>(keySelector: Selector<T, TKey>,
         elementSelector: Selector<T, TElement> = defaultSelector,
-        keyComparer: EqualityComparer<TKey> = defaultEqualityComparer): ILinqObject<IGrouping<TKey, TElement>> {
-        return new LinqWrapper<IGrouping<TKey, TElement>>(groupBy<T, TKey, TElement>(this.iterable, keySelector, elementSelector, keyComparer));
+        keyComparer: EqualityComparer<TKey> = defaultEqualityComparer): ISequence<IGrouping<TKey, TElement>> {
+        return new Sequence<IGrouping<TKey, TElement>>(groupBy<T, TKey, TElement>(this.iterable, keySelector, elementSelector, keyComparer));
     }
 
     groupByHash<TKey, TElement>(keySelector: Selector<T, TKey>,
         elementSelector: Selector<T, TElement> = defaultSelector,
-        keyHash: Hash<TKey> = defaultHash): ILinqObject<IGrouping<TKey, TElement>> {
-        return new LinqWrapper<IGrouping<TKey, TElement>>(groupByHash<T, TKey, TElement>(this.iterable, keySelector, elementSelector, keyHash));
+        keyHash: Hash<TKey> = defaultHash): ISequence<IGrouping<TKey, TElement>> {
+        return new Sequence<IGrouping<TKey, TElement>>(groupByHash<T, TKey, TElement>(this.iterable, keySelector, elementSelector, keyHash));
     }
 
-    undefinedIfEmpty(): ILinqObject<T | undefined> {
-        return new LinqWrapper<T | undefined>(undefinedIfEmpty(this.iterable));
+    undefinedIfEmpty(): ISequence<T | undefined> {
+        return new Sequence<T | undefined>(undefinedIfEmpty(this.iterable));
     }
 
-    intersect(other: Iterable<T>, comparer: EqualityComparer<T> = defaultEqualityComparer): ILinqObject<T> {
-        return new LinqWrapper<T>(intersect(this.iterable, other, comparer));
+    intersect(other: Iterable<T>, comparer: EqualityComparer<T> = defaultEqualityComparer): ISequence<T> {
+        return new Sequence<T>(intersect(this.iterable, other, comparer));
     }
 
-    intersectHash(other: Iterable<T>, hash: Hash<T> = defaultHash): ILinqObject<T> {
-        return new LinqWrapper<T>(intersectHash(this.iterable, other, hash));
+    intersectHash(other: Iterable<T>, hash: Hash<T> = defaultHash): ISequence<T> {
+        return new Sequence<T>(intersectHash(this.iterable, other, hash));
     }
 
     last(predicate: Predicate<T> = defaultPredicate): T {
@@ -1372,20 +1487,30 @@ class LinqWrapper<T> implements ILinqObject<T> {
         return minMax(this.iterable, selector);
     }
 
-    ofType<TResult extends T>(ctor: Constructor<TResult>): ILinqObject<TResult> {
-        return new LinqWrapper(ofType(this.iterable, ctor));
+    ofType<TResult extends T>(ctor: Constructor<TResult>): ISequence<TResult> {
+        return new Sequence(ofType(this.iterable, ctor));
     }
 
-    reverse(): ILinqObject<T> {
-        return new LinqWrapper<T>(reverse(this.iterable));
+    orderBy<TKey>(keySelector: Selector<T, TKey>,
+        comparer: Comparer<TKey> = defaultComparer): IOrderedSequence<T> {
+        return new OrderedSequence(orderBy(this.iterable, keySelector, comparer));
     }
 
-    select<TResult>(selector: IndexedSelector<T, TResult>): ILinqObject<TResult> {
-        return new LinqWrapper<TResult>(select(this.iterable, selector));
+    orderByDescending<TKey>(keySelector: Selector<T, TKey>,
+        comparer: Comparer<TKey> = defaultComparer): IOrderedSequence<T> {
+        return new OrderedSequence(orderByDescending(this.iterable, keySelector, comparer));
     }
 
-    selectMany<TResult>(selector: IndexedSelector<T, Iterable<TResult>>): ILinqObject<TResult> {
-        return new LinqWrapper(selectMany(this.iterable, selector));
+    reverse(): ISequence<T> {
+        return new Sequence<T>(reverse(this.iterable));
+    }
+
+    select<TResult>(selector: IndexedSelector<T, TResult>): ISequence<TResult> {
+        return new Sequence<TResult>(select(this.iterable, selector));
+    }
+
+    selectMany<TResult>(selector: IndexedSelector<T, Iterable<TResult>>): ISequence<TResult> {
+        return new Sequence(selectMany(this.iterable, selector));
     }
 
     sequenceEqual(other: Iterable<T>, comparer: EqualityComparer<T> = defaultEqualityComparer): boolean {
@@ -1400,24 +1525,24 @@ class LinqWrapper<T> implements ILinqObject<T> {
         return singleOrUndefined(this.iterable, predicate);
     }
 
-    skip(count: number): ILinqObject<T> {
-        return new LinqWrapper<T>(skip(this.iterable, count));
+    skip(count: number): ISequence<T> {
+        return new Sequence<T>(skip(this.iterable, count));
     }
 
-    skipWhile(predicate: IndexedPredicate<T>): ILinqObject<T> {
-        return new LinqWrapper<T>(skipWhile(this.iterable, predicate));
+    skipWhile(predicate: IndexedPredicate<T>): ISequence<T> {
+        return new Sequence<T>(skipWhile(this.iterable, predicate));
     }
 
     sum(selector: Selector<T, number> = defaultNumberSelector): number {
         return sum(this.iterable, selector);
     }
 
-    take(count: number): ILinqObject<T> {
-        return new LinqWrapper<T>(take(this.iterable, count));
+    take(count: number): ISequence<T> {
+        return new Sequence<T>(take(this.iterable, count));
     }
 
-    takeWhile(predicate: IndexedPredicate<T>): ILinqObject<T> {
-        return new LinqWrapper<T>(takeWhile(this.iterable, predicate));
+    takeWhile(predicate: IndexedPredicate<T>): ISequence<T> {
+        return new Sequence<T>(takeWhile(this.iterable, predicate));
     }
 
     toArray(): T[] {
@@ -1429,25 +1554,39 @@ class LinqWrapper<T> implements ILinqObject<T> {
         return toMap<T, TElement>(this.iterable, keySelector, valueSelector);
     }
 
-    union(other: Iterable<T>, comparer: EqualityComparer<T> = defaultEqualityComparer): ILinqObject<T> {
-        return new LinqWrapper<T>(union(this.iterable, other, comparer));
+    union(other: Iterable<T>, comparer: EqualityComparer<T> = defaultEqualityComparer): ISequence<T> {
+        return new Sequence<T>(union(this.iterable, other, comparer));
     }
 
-    unionHash(other: Iterable<T>, hash: Hash<T> = defaultHash): ILinqObject<T> {
-        return new LinqWrapper<T>(unionHash(this.iterable, other, hash));
+    unionHash(other: Iterable<T>, hash: Hash<T> = defaultHash): ISequence<T> {
+        return new Sequence<T>(unionHash(this.iterable, other, hash));
     }
 
-    where(predicate: IndexedPredicate<T>): ILinqObject<T> {
-        return new LinqWrapper<T>(where(this.iterable, predicate));
+    where(predicate: IndexedPredicate<T>): ISequence<T> {
+        return new Sequence<T>(where(this.iterable, predicate));
     }
 
     zip<TSecond, TResult>(other: Iterable<TSecond>, resultSelector: (first: T, other: TSecond) => TResult):
-        ILinqObject<TResult> {
-        return new LinqWrapper(zip(this.iterable, other, resultSelector));
+        ISequence<TResult> {
+        return new Sequence(zip(this.iterable, other, resultSelector));
+    }
+}
+
+export class OrderedSequence<T> extends Sequence<T> implements IOrderedSequence<T> {
+    constructor(private readonly orderedIterable: IOrderedIterable<T>) {
+        super(orderedIterable);
+    }
+
+    thenBy<TKey>(keySelector: Selector<T, TKey>, comparer: Comparer<TKey> = defaultComparer): IOrderedSequence<T> {
+        return new OrderedSequence<T>(this.orderedIterable.thenBy(keySelector, comparer));
+    }
+
+    thenByDescending<TKey>(keySelector: Selector<T, TKey>, comparer: Comparer<TKey> = defaultComparer): IOrderedSequence<T> {
+        return new OrderedSequence<T>(this.orderedIterable.thenByDescending(keySelector, comparer));
     }
 }
 
 // ReSharper disable once InconsistentNaming
-export function L<T>(iterable: Iterable<T>): ILinqObject<T> {
-    return new LinqWrapper(iterable);
+export function L<T>(iterable: Iterable<T>): ISequence<T> {
+    return new Sequence(iterable);
 }
