@@ -996,6 +996,16 @@ export function toArray<T>(source: Iterable<T>): T[] {
  */
 export function toLookup<T, TElement>(source: Iterable<T>,
     keySelector: Selector<T, string>,
+    valueSelector: Selector<T, TElement>): StringKeyMap<Iterable<TElement>>;
+/**
+ * Creates a lookup from an Iterable<T> according to specified key selector function.
+ * @param source The Iterable<T> to create a lookup from.
+ * @param keySelector A function to extract a key from each element.
+ * @return A lookup that contains values of type TElement selected from the input sequence.
+ */
+export function toLookup<T>(source: Iterable<T>, keySelector: Selector<T, string>): StringKeyMap<Iterable<T>>;
+export function toLookup<T, TElement>(source: Iterable<T>,
+    keySelector: Selector<T, string>,
     valueSelector: Selector<T, TElement> = defaultSelector): StringKeyMap<Iterable<TElement>> {
     const object: StringKeyMap<TElement[]> = {};
     for (let item of source) {
@@ -1011,6 +1021,7 @@ export function toLookup<T, TElement>(source: Iterable<T>,
     return object;
 }
 
+
 /**
  * Creates a map object from a sequence according to specified key selector and element selector functions.
  * @param source An Iterable<T> to create a map object from.
@@ -1018,6 +1029,16 @@ export function toLookup<T, TElement>(source: Iterable<T>,
  * @param valueSelector A transform function to produce a result element value from each element.
  * @return A map object that contains values of type TElement selected from the input sequence.
  */
+export function toMap<T, TElement>(source: Iterable<T>,
+    keySelector: Selector<T, string>,
+    valueSelector: Selector<T, TElement>): StringKeyMap<TElement>;
+/**
+ * Creates a map object from a sequence according to specified key selector function.
+ * @param source An Iterable<T> to create a map object from.
+ * @param keySelector A function to extract a string key from each element.
+ * @return A map object that contains values of type TElement selected from the input sequence.
+ */
+export function toMap<T>(source: Iterable<T>, keySelector: Selector<T, string>): StringKeyMap<T>;
 export function toMap<T, TElement>(source: Iterable<T>,
     keySelector: Selector<T, string>,
     valueSelector: Selector<T, TElement> = defaultSelector): StringKeyMap<TElement> {
@@ -1032,6 +1053,7 @@ export function toMap<T, TElement>(source: Iterable<T>,
 
     return object;
 }
+
 
 /**
  * Returns undefined in a singleton collection if the sequence is empty.
@@ -1492,14 +1514,26 @@ export interface ISequence<T> extends Iterable<T> {
     toArray(): T[];
 
     /**
+     * Creates a lookup from this sequence according to specified key selector function.
+     * @param keySelector A function to extract a key from each element.
+     * @return A lookup that contains values of type TElement selected from this sequence.
+     */
+    toLookup(keySelector: Selector<T, string>): StringKeyMap<ISequence<T>>;
+    /**
      * Creates a lookup from this sequence according to specified key selector and element selector functions.
      * @param keySelector A function to extract a key from each element.
      * @param valueSelector A transform function to produce a result element value from each element.
      * @return A lookup that contains values of type TElement selected from this sequence.
      */
     toLookup<TElement>(keySelector: Selector<T, string>,
-        valueSelector?: Selector<T, TElement>): StringKeyMap<ISequence<TElement>>;
+        valueSelector: Selector<T, TElement>): StringKeyMap<ISequence<TElement>>;
 
+    /**
+     * Creates a map object from this sequence according to specified key selector function.
+     * @param keySelector A function to extract a string key from each element.
+     * @return A map object that contains values of type TElement selected from this sequence.
+     */
+    toMap(keySelector: Selector<T, string>): StringKeyMap<T>;
     /**
      * Creates a map object from this sequence according to specified key selector and element selector functions.
      * @param keySelector A function to extract a string key from each element.
@@ -1507,7 +1541,7 @@ export interface ISequence<T> extends Iterable<T> {
      * @return A map object that contains values of type TElement selected from this sequence.
      */
     toMap<TElement>(keySelector: Selector<T, string>,
-        valueSelector?: Selector<T, TElement>): StringKeyMap<TElement>;
+        valueSelector: Selector<T, TElement>): StringKeyMap<TElement>;
 
     /**
      * Returns undefined in a singleton collection if this sequence is empty.
@@ -1777,8 +1811,11 @@ class Sequence<T> implements ISequence<T> {
     }
 
     toLookup<TElement>(keySelector: Selector<T, string>,
+        valueSelector: Selector<T, TElement>): StringKeyMap<ISequence<TElement>>;
+    toLookup(keySelector: Selector<T, string>): StringKeyMap<ISequence<T>>;
+    toLookup<TElement>(keySelector: Selector<T, string>,
         valueSelector: Selector<T, TElement> = defaultSelector): StringKeyMap<ISequence<TElement>> {
-        const rawLookup = toLookup(this.iterable, keySelector, valueSelector);
+        const rawLookup = toLookup<T, TElement>(this.iterable, keySelector, valueSelector);
         const lookup: StringKeyMap<ISequence<TElement>> = {};
         for (let key in rawLookup) {
             if (rawLookup.hasOwnProperty(key)) {
@@ -1788,7 +1825,9 @@ class Sequence<T> implements ISequence<T> {
 
         return lookup;
     }
-
+    toMap<TElement>(keySelector: Selector<T, string>,
+        valueSelector: Selector<T, TElement>): StringKeyMap<TElement>;
+    toMap(keySelector: Selector<T, string>): StringKeyMap<T>;
     toMap<TElement>(keySelector: Selector<T, string>,
         valueSelector: Selector<T, TElement> = defaultSelector): StringKeyMap<TElement> {
         return toMap(this.iterable, keySelector, valueSelector);
