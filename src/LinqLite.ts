@@ -601,6 +601,7 @@ export function lastOrUndefined<T>(source: Iterable<T> | T[], predicate: Predica
     return last;
 }
 
+
 /**
  * Invokes a transform function on each element of a sequence and returns the maximum number value.
  * @param source A sequence of values to determine the maximum value of.
@@ -615,6 +616,7 @@ export function max<T>(source: Iterable<T>, selector: Selector<T, number> = defa
 
     return max;
 }
+
 
 /**
  * Invokes a transform function on each element of a sequence and returns the minimum number value.
@@ -1127,6 +1129,51 @@ export function* unionHash<T>(first: Iterable<T>, second: Iterable<T>, hash: Has
     }
 }
 
+
+/**
+ * Returns the elements of the sequence that has the maximum value calculated by the specified selector.
+ * @param source An Iterable<T> to find element from.
+ * @param selector A transform function to apply to each element.
+ * @return an array of elements from the input sequence that has the maximum value calculated by the specified selector.
+ */
+export function withMax<T>(source: Iterable<T>, selector: Selector<T, number>): T[] {
+    let max = Number.MIN_VALUE;
+    let elements = new Array<T>();
+    for (let item of source) {
+        const value = selector(item);
+        if (max < value) {
+            max = value;
+            elements = [item];
+        } else if (max === value) {
+            elements.push(item);
+        }
+    }
+
+    return elements;
+}
+
+/**
+ * Returns the elements of the sequence that has the minimum value calculated by the specified selector.
+ * @param source An Iterable<T> to find element from.
+ * @param selector A transform function to apply to each element.
+ * @return an array of elements from the input sequence that has the minimum value calculated by the specified selector.
+ */
+export function withMin<T>(source: Iterable<T>, selector: Selector<T, number>): T[] {
+    let min = Number.MAX_VALUE;
+    let elements = new Array<T>();
+    for (let item of source) {
+        const value = selector(item);
+        if (min > value) {
+            min = value;
+            elements = [item];
+        } else if (min === value) {
+            elements.push(item);
+        }
+    }
+
+    return elements;
+}
+
 /**
  * Filters a sequence of values based on a predicate.
  * @param source An Iterable<T> to filter.
@@ -1563,6 +1610,21 @@ export interface ISequence<T> extends Iterable<T> {
      * @return An Iterable<T> that contains the elements from both input sequences, excluding duplicates.
      */
     unionHash(other: Iterable<T>, hash?: Hash<T>): ISequence<T>;
+
+    /**
+     * Returns the elements of this sequence that has the maximum value calculated by the specified selector.
+     * @param selector A transform function to apply to each element.
+     * @return an array of elements from this sequence that has the maximum value calculated by the specified selector.
+     */
+    withMax(selector: Selector<T, number>): ISequence<T>;
+
+    /**
+     * Returns the elements of this sequence that has the minimum value calculated by the specified selector.
+     * @param selector A transform function to apply to each element.
+     * @return an array of elements from this sequence that has the minimum value calculated by the specified selector.
+     */
+    withMin(selector: Selector<T, number>): ISequence<T>;
+
     /**
      * Filters this sequence of values based on a predicate.
      * @param predicate A function to test each source element for a condition; the second parameter of the function represents the index of the source element.
@@ -1575,8 +1637,8 @@ export interface ISequence<T> extends Iterable<T> {
      * @param resultSelector A function that specifies how to merge the elements from the two sequences.
      * @return A sequence<T> that contains merged elements of two input sequences.
      */
-    zip<TSecond, TResult>(other: Iterable<TSecond>, resultSelector: (first: T, other: TSecond) => TResult):
-        ISequence<TResult>;
+    zip<TSecond, TResult>(other: Iterable < TSecond >, resultSelector: (first: T, other: TSecond) => TResult):
+    ISequence<TResult>;
 }
 
 
@@ -1843,6 +1905,14 @@ class Sequence<T> implements ISequence<T> {
 
     unionHash(other: Iterable<T>, hash: Hash<T> = defaultHash): ISequence<T> {
         return new Sequence<T>(unionHash(this.iterable, other, hash));
+    }
+
+    withMin(selector: Selector<T, number>): ISequence<T> {
+        return new Sequence<T>(withMin(this.iterable, selector));
+    }
+
+    withMax(selector: Selector<T, number>): ISequence<T> {
+        return new Sequence<T>(withMax(this.iterable, selector));
     }
 
     where(predicate: IndexedPredicate<T>): ISequence<T> {
