@@ -1350,7 +1350,7 @@ export interface ISequence<T> extends Iterable<T> {
      * Iterate through this sequence and perform the specified action on each element.
      * @param action the action to apply to each element.
      */
-    foreach(action: (element: T) => void): void;
+    foreach(action: (element: T, index: number) => void): void;
 
     /**
      * Groups the elements of this sequence according to a specified key selector function and projects the elements for each group by using a specified function.
@@ -1637,8 +1637,8 @@ export interface ISequence<T> extends Iterable<T> {
      * @param resultSelector A function that specifies how to merge the elements from the two sequences.
      * @return A sequence<T> that contains merged elements of two input sequences.
      */
-    zip<TSecond, TResult>(other: Iterable < TSecond >, resultSelector: (first: T, other: TSecond) => TResult):
-    ISequence<TResult>;
+    zip<TSecond, TResult>(other: Iterable<TSecond>, resultSelector: (first: T, other: TSecond) => TResult):
+        ISequence<TResult>;
 }
 
 
@@ -1730,9 +1730,11 @@ class Sequence<T> implements ISequence<T> {
         return firstOrUndefined(this.iterable, predicate);
     }
 
-    foreach(action: (element: T) => void): void {
+    foreach(action: (element: T, index: number) => void): void {
+        let index = 0;
         for (let item of this.iterable) {
-            action(item);
+            action(item, index);
+            ++index;
         }
     }
 
