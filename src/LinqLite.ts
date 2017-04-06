@@ -1927,16 +1927,19 @@ class Sequence<T> implements ISequence<T> {
     }
 }
 
+const outerRange = range;
+const outerRepeat = repeat;
+
 // ReSharper disable once InconsistentNaming
 export module ISequence {
     /**
- * Generates a sequence of integral numbers within a specified range.
- * @param start The value of the first integer in the sequence.
- * @param count The number of sequential integers to generate.
- * @return An ISequence<Int32> that contains a range of sequential integral numbers.
- */
+     * Generates a sequence of integral numbers within a specified range.
+     * @param start The value of the first integer in the sequence.
+     * @param count The number of sequential integers to generate.
+     * @return An ISequence<Int32> that contains a range of sequential integral numbers.
+     */
     export function range(start: number, count: number): ISequence<number> {
-        return new Sequence<number>(range(start, count));
+        return new Sequence<number>(outerRange(start, count));
     }
 
     /**
@@ -1946,7 +1949,7 @@ export module ISequence {
      * @return An ISequence<T> that contains a repeated value.
      */
     export function repeat<T>(element: T, count: number): ISequence<T> {
-        return new Sequence<T>(repeat(element, count));
+        return new Sequence<T>(outerRepeat(element, count));
     }
 }
 
