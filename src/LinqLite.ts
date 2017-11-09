@@ -638,10 +638,17 @@ export function lastOrUndefined<T>(source: Iterable<T> | T[], predicate: Predica
  * @param selector A transform function to apply to each element.
  * @return The maximum value in the sequence.
  */
-export function max<T>(source: Iterable<T>, selector: Selector<T, number> = defaultNumberSelector): number {
-    let max = Number.MIN_VALUE;
+export function max<T>(source: Iterable<T>, selector: Selector<T, number> = defaultNumberSelector): number | undefined {
+    let max = -Infinity;
+
+    let isEmpty = true;
     for (const item of source) {
         max = Math.max(max, selector(item));
+        isEmpty = false;
+    }
+
+    if (isEmpty) {
+        return undefined;
     }
 
     return max;
@@ -654,11 +661,17 @@ export function max<T>(source: Iterable<T>, selector: Selector<T, number> = defa
  * @param selector A transform function to apply to each element.
  * @return The minimum value in the sequence.
  */
-export function min<T>(source: Iterable<T>, selector: Selector<T, number> = defaultNumberSelector): number {
-    let min = Number.MAX_VALUE;
+export function min<T>(source: Iterable<T>, selector: Selector<T, number> = defaultNumberSelector): number | undefined {
+    let min = Infinity;
 
+    let isEmpty = true;
     for (const item of source) {
         min = Math.min(min, selector(item));
+        isEmpty = false;
+    }
+
+    if (isEmpty) {
+        return undefined;
     }
 
     return min;
@@ -671,15 +684,22 @@ export function min<T>(source: Iterable<T>, selector: Selector<T, number> = defa
  * @returns The minimum and maximum value in the sequence.
  */
 export function minMax<T>(source: Iterable<T>, selector: Selector<T, number> = defaultNumberSelector)
-    : { min: number, max: number } {
+    : { min: number, max: number } | undefined {
 
-    let min = Number.MAX_VALUE;
-    let max = Number.MIN_VALUE;
+    let min = Infinity;
+    let max = -Infinity;
 
+    let isEmpty = true;
     for (const item of source) {
         const value = selector(item);
         min = Math.min(min, value);
         max = Math.max(max, value);
+
+        isEmpty = false;
+    }
+
+    if (isEmpty) {
+        return undefined;
     }
 
     return { min, max };
@@ -1199,7 +1219,7 @@ export function* unionHash<T>(first: Iterable<T>, second: Iterable<T>, hash: Has
  * @return an array of elements from the input sequence that has the maximum value calculated by the specified selector.
  */
 export function withMax<T>(source: Iterable<T>, selector: Selector<T, number>): T[] {
-    let max = Number.MIN_VALUE;
+    let max = -Infinity;
     let elements = new Array<T>();
     for (const item of source) {
         const value = selector(item);
@@ -1221,7 +1241,7 @@ export function withMax<T>(source: Iterable<T>, selector: Selector<T, number>): 
  * @return an array of elements from the input sequence that has the minimum value calculated by the specified selector.
  */
 export function withMin<T>(source: Iterable<T>, selector: Selector<T, number>): T[] {
-    let min = Number.MAX_VALUE;
+    let min = Infinity;
     let elements = new Array<T>();
     for (const item of source) {
         const value = selector(item);
@@ -1358,7 +1378,7 @@ export interface ISequence<T> extends Iterable<T> {
      * @param predicate A function to test each element for a condition.
      * @return A number that represents how many elements in this sequence satisfy the condition in the predicate function.
      */
-    count(predicate: Predicate<T>): number;
+    count(predicate?: Predicate<T>): number;
 
     /**
      * Returns the elements of this sequence or the specified value in a singleton collection if the sequence is empty.
@@ -1782,7 +1802,7 @@ class Sequence<T> implements ISequence<T> {
     }
 
     count(predicate: Predicate<T> = defaultPredicate): number {
-        return count(this.iterable);
+        return count(this.iterable, predicate);
     }
 
     defaultIfEmpty(defaultValue: T): ISequence<T> {
